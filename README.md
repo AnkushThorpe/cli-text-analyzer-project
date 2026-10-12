@@ -1,4 +1,5 @@
 # CLI Text Analyzer
+![tests](https://github.com/AnkushThorpe/cli-text-analyzer-project/actions/workflows/tests.yml/badge.svg)
 
 A small command-line tool that reads a text file and reports:
 
