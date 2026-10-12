@@ -1,20 +1,22 @@
 """
-Mini-Project: CLI Text Analyzer
-
-Usage:
-    python project_text_analyzer.py sample_text.txt
+CLI Text Analyzer
 
 Reads a text file and reports:
     - total word count
-    - the 10 most common words (excluding common stopwords)
+    - the most common words (excluding common stopwords)
     - average sentence length, in words
 
-The CLI plumbing (argument handling, file reading, printing) is done for
-you below. Your job is to implement `analyze_text`.
+Usage:
+    python project_text_analyzer.py sample_text.txt
+    python project_text_analyzer.py sample_text.txt --top 5
 """
+import argparse
+import re
 import sys
-import string
 from collections import Counter
+
+# Matches runs of non-letter/non-digit characters at the start or end of a token.
+EDGE_PUNCTUATION = re.compile(r"^[\W_]+|[\W_]+$")
 
 STOPWORDS = {
     "the", "a", "an", "and", "or", "but", "is", "are", "was", "were",
@@ -22,70 +24,80 @@ STOPWORDS = {
 }
 
 
-def analyze_text(text: str) -> dict:
+def clean_word(word: str) -> str:
     """
-    Return a dict with exactly these keys:
-        "total_words": int
-            Total number of words in the text (stopwords included).
-        "top_10_words": list[tuple[str, int]]
-            The 10 most common words, EXCLUDING STOPWORDS, most common first.
-            Use collections.Counter.most_common().
-        "avg_sentence_length": float
-            Average number of words per sentence, rounded to 2 decimals.
-            Split sentences on '.', '!', '?'. Ignore empty sentences
-            (e.g. from trailing punctuation or multiple punctuation marks).
+    Lowercase a word and strip surrounding punctuation ("Code," -> "code").
+
+    Uses a regex instead of string.punctuation so non-ASCII marks such as
+    the em dash (—) or curly quotes are stripped too. Inner apostrophes
+    ("people's") are kept.
     """
-    # 1. Total words: stopwords included
-    total_words = len(text.split())
+    return EDGE_PUNCTUATION.sub("", word).lower()
 
-    # 2. Top 10 words: clean each word, skip empty words and stopwords
-    clean_words = []
-    for word in text.split():
-        word = word.strip(string.punctuation).lower()
-        if word and word not in STOPWORDS:
-            clean_words.append(word)
-    top_10_words = Counter(clean_words).most_common(10)
 
-    # 3. Average sentence length: split on . ! ? and skip empty sentences
+def analyze_text(text: str, top_n: int = 10) -> dict:
+    """
+    Analyze a block of text and return a dict with:
+        "total_words": number of words, stopwords included. Tokens made up
+            only of punctuation (like "—" or "...") are not counted.
+        "top_words": list of (word, count) pairs for the top_n most common
+            non-stopword words, most common first.
+        "avg_sentence_length": average words per sentence, rounded to
+            2 decimals. Sentences end at '.', '!' or '?'; empty pieces from
+            repeated or trailing punctuation are ignored.
+    """
+    # Clean every token once, dropping punctuation-only tokens, so the word
+    # count and the frequency list are based on the same definition of a word.
+    words = [w for w in (clean_word(t) for t in text.split()) if w]
+    total_words = len(words)
+
+    top_words = Counter(w for w in words if w not in STOPWORDS).most_common(top_n)
+
     sentence_text = text.replace("!", ".").replace("?", ".")
-    sentence_count = 0
-    sentence_word_count = 0
+    sentence_lengths = []
     for piece in sentence_text.split("."):
-        words = piece.split()
-        if len(words) > 0:
-            sentence_count += 1
-            sentence_word_count += len(words)
+        length = sum(1 for t in piece.split() if clean_word(t))
+        if length > 0:
+            sentence_lengths.append(length)
 
-    if sentence_count == 0:
-        avg_sentence_length = 0.0
+    if sentence_lengths:
+        avg_sentence_length = round(sum(sentence_lengths) / len(sentence_lengths), 2)
     else:
-        avg_sentence_length = round(sentence_word_count / sentence_count, 2)
+        avg_sentence_length = 0.0
 
     return {
         "total_words": total_words,
-        "top_10_words": top_10_words,
+        "top_words": top_words,
         "avg_sentence_length": avg_sentence_length,
     }
 
 
-def main():
-    if len(sys.argv) != 2:
-        print("Usage: python project_text_analyzer.py <path_to_text_file>")
-        sys.exit(1)
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Report word count, most common words and average sentence length for a text file."
+    )
+    parser.add_argument("path", help="path to a UTF-8 text file")
+    parser.add_argument(
+        "--top", type=int, default=10, metavar="N",
+        help="number of most common words to show (default: 10)",
+    )
+    args = parser.parse_args()
 
-    path = sys.argv[1]
+    if args.top < 1:
+        parser.error("--top must be at least 1")
+
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(args.path, "r", encoding="utf-8") as f:
             text = f.read()
     except FileNotFoundError:
-        print(f"Error: file not found: {path}")
+        print(f"Error: file not found: {args.path}", file=sys.stderr)
         sys.exit(1)
 
-    stats = analyze_text(text)
+    stats = analyze_text(text, top_n=args.top)
 
     print(f"Total words: {stats['total_words']}")
-    print("Top 10 words (stopwords excluded):")
-    for word, count in stats["top_10_words"]:
+    print(f"Top {args.top} words (stopwords excluded):")
+    for word, count in stats["top_words"]:
         print(f"  {word}: {count}")
     print(f"Average sentence length: {stats['avg_sentence_length']} words")
 
